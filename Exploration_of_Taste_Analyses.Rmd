@@ -1,0 +1,267 @@
+---
+title: "Exploration of Analyses for Poland COVID"
+author: "Caulu Lin"
+date: "2024-09-10"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+```{r packages}
+pacman::p_load(dplyr, ggplot2, ggstatsplot)
+```
+
+
+```{r data and test for salt }
+## How much salt do you use in your meals? None	Very little	Little	Moderately	  Much	Very much
+ 
+df<-data.frame(row.names =c("None", "VeryLittle", "Litlle", "Moderately", "Much", "VeryMuch"),
+              CoV_smell_taste_disturbances=c(0,3,4,12,6,0),
+              CoV_no_smell_taste_disturbances=c(0,2,1,3,1,0),
+               healthCtr=c(0,8,7,18,6,0),
+               pertCoV_smell_taste_disturbances=c(0,12,16,48,24,0),
+               pertCoV_no_smell_taste_disturbances=c(0,28.6,14.3,42.9,14.3,0),
+               perthealthCtr=c(0,20.5,17.9,46.2,15.4,0)) 
+
+
+# CoV_smell_taste_disturbances vs healthCtr # Count
+chisq.test(df[ c(1,3)])
+chisq.test(df[ c(4,6)])
+
+#
+fisher.test(df[c(1,3)])
+fisher.test(df[c(1,3)])
+#
+ks.test(df$CoV_smell_taste_disturbances, df$healthCtr)
+ks.test(df$pertCoV_smell_taste_disturbances, df$perthealthCtr)
+
+#
+
+```
+
+
+
+```{r data and test for sugar}
+df<-data.frame(row.names =c("None", "VeryLittle", "Litlle", "Moderately", "Much", "VeryMuch"),
+              CoV_smell_taste_disturbances=c(2,5,7,8,2,1),
+              CoV_no_smell_taste_disturbances=c(0,3,1,2,1,0),
+               healthCtr=c(2,6,10,12,9,0),
+               pertCoV_smell_taste_disturbances=c(8,20,28,32,8,4),
+               pertCoV_no_smell_taste_disturbances=c(0,42.9,14.3,28.6,14.3,0),
+               perthealthCtr=c(5.1,15.4,25.6,30.8,23.1,0)) 
+
+
+# CoV_smell_taste_disturbances vs healthCtr # Count
+chisq.test(df[ c(1,3)])
+chisq.test(df[ c(4,6)])
+
+#
+fisher.test(df[c(1,3)])
+fisher.test(df[c(1,3)])
+#
+ks.test(df$CoV_smell_taste_disturbances, df$healthCtr)
+ks.test(df$pertCoV_smell_taste_disturbances, df$perthealthCtr)
+
+```
+## we code data as numeric data as
+## None=0, VeryLittle=1, Little=2, moderately=3, much=4, VeryMuch=5
+```{r data coding and test}
+df<-data.frame(group=c(rep("CoV_smell_taste_disturbances",25), rep("CoV_no_smell_taste_disturbances", 7), rep("healthCtr", 39)), salt= c(1,	1,	1,	2,	2,	2,	2,	3,	3,	3,	3,	3,	3,	3,	3,	3,	3,	3,	3,	4,	4,	4,	4,	4,	4,1,	1,	2,	3,	3,	3,	4,1,	1,	1,	1,	1,	1,	1,	1,	2,	2,	2,	2,	2,	2,	2,	3,	3,	3,	3,	3,	3,	3,	3,	3,	3,	3,	3,	3,3,	3,	3,	3,	3,	4,	4,	4,	4,	4,	4), sugar_sweeteners=c(0,	0,	1,	1,	1,	1,	1,	2,	2,	2,	2,	2,	2,	2,	3,	3,	3,	3,	3,	3,	3,	3,	4,	4,	5,	1,	1,	1,	2,	3,	3,	4,	0,	0,	1,	1,	1,	1,	1,	1,	2,	2,	2,	2,	2,	2,	2,	2,	2,	2,	3,	3,	3,	3,	3,	3,	3,	3,	3,	3,	3,	3,	4,	4,	4,	4,	4,	4,	4,	4,	4))
+
+
+wilcox.test(salt ~ group,subset(df, group !="CoV_no_smell_taste_disturbances"))
+
+
+ggbetweenstats(
+  data = df,
+  x = group,
+  y = salt
+)
+
+wilcox.test(sugar_sweeteners ~ group,subset(df, group !="CoV_no_smell_taste_disturbances"))
+
+ggbetweenstats(
+  data = df,
+  x = group,
+  y = sugar_sweeteners
+)
+```
+
+#COVID patients who experience a loss of taste or smell tend to increase their salt intake and reduce their sugar/sweetener intake, as expected. To determine the true difference between the two groups, it is important to adjust for sex and age as covariates. Including these covariates can strengthen the results by accounting for their potential influence on taste and smell, enabling the model to more accurately isolate the effects of the primary variables.
+
+##Given the small sample size, advanced statistical methods and resampling techniques can provide more robust insights. 
+
+# Bootstrap
+```{r Bootstrap}
+library(boot)
+
+##
+statistic_function <- function(data, indices) {
+  df <- data[indices, ]
+  return(mean(df$salt[df$group == "CoV_smell_taste_disturbances"]) - mean(df$salt[df$group == "healthCtr"]))
+}
+
+salt_bootstrap_results <- boot(data = df, statistic = statistic_function, R = 1000)
+salt_bootstrap_results
+
+##sugar_sweeteners
+statistic_function <- function(data, indices) {
+  df <- data[indices, ]
+  return(mean(df$sugar_sweeteners[df$group == "CoV_smell_taste_disturbances"]) - mean(df$sugar_sweeteners[df$group == "healthCtr"]))
+}
+
+sugar_bootstrap_results <- boot(data = df, statistic = statistic_function, R = 1000)
+sugar_bootstrap_results
+```
+
+# MCMC
+```{r Markov Chain Monte Carlo (MCMC) used in Bayesian model}
+library(rjags)
+# Define a Bayesian model in JAGS syntax
+model_string <- "model {
+ # Likelihood
+  for (i in 1:N) {
+    salt[i] ~ dnorm(mu, tau)
+  }
+
+  # Priors
+  mu ~ dnorm(0, 0.001)
+  tau ~ dgamma(0.001, 0.001)
+}
+"
+# Prepare data for JAGS
+df1<-subset(df, group !="CoV_no_smell_taste_disturbances")
+
+## salt
+data_list <- list(salt = df1$salt, N = length(df1$salt))
+
+# Create JAGS model
+model <- jags.model(textConnection(model_string), data = data_list, n.chains = 2)
+
+# Burn-in
+update(model, 1000)
+
+# Sampling
+Salt_samples <- coda.samples(model, variable.names = c("mu", "tau"), n.iter = 5000)
+
+## Sugar_sweeteners
+
+data_list <- list(Sugar_samples = df1$sugar_sweeteners, N = length(df1$sugar_sweeteners))
+
+# Create JAGS model
+model <- jags.model(textConnection(model_string), data = data_list, n.chains = 2)
+
+# Burn-in
+update(model, 1000)
+
+# Sampling
+Sugar_samples <- coda.samples(model, variable.names = c("mu", "tau"), n.iter = 5000)
+
+# View results
+print(summary(Sugar_samples))
+```
+
+# Bayesian model
+```{r Bayesian model, echo=TRUE, message=FALSE, warning=FALSE }
+library(rstan)
+
+model_code <- "
+data {
+  int<lower=0> N; // number of observations
+  vector[N] y; // observations
+}
+parameters {
+  real mu; // mean
+  real<lower=0> sigma; // standard deviation
+}
+model {
+  y ~ normal(mu, sigma); // likelihood
+  mu ~ normal(0, 10); // prior for mu
+  sigma ~ cauchy(0, 5); // prior for sigma
+}
+"
+
+##salt
+data_list <- list(y = df1$salt, N = length(df1$salt))
+```
+
+
+```{r Stan model , echo=TRUE, message=FALSE, warning=FALSE , results='hide'}
+# Compile the Stan model
+stan_model <- stan_model(model_code = model_code)
+```
+
+
+```{r Baysian }
+# Fit the model
+fit <- sampling(stan_model, data = data_list, iter = 2000, chains = 4)
+
+traceplot(fit)
+
+
+# Example summary based on hypothetical output
+summary <- summary(fit)
+posterior_mu <- summary$summary["mu", ]
+posterior_sigma <- summary$summary["sigma", ]
+
+cat("Posterior Mean (mu):", posterior_mu["mean"], "\n")
+cat("95% Credible Interval for mu:", posterior_mu["2.5%"], "-", posterior_mu["97.5%"], "\n")
+
+cat("Posterior Standard Deviation (sigma):", posterior_sigma["mean"], "\n")
+cat("95% Credible Interval for sigma:", posterior_sigma["2.5%"], "-", posterior_sigma["97.5%"], "\n")
+
+##f the credible interval for mu is narrow and doesn’t include 0, we might conclude that the mean salt concentration differs significantly from 0.
+
+#Extract Posterior Samples for Further Analysis
+posterior_samples <- extract(fit)
+posterior_mu <- posterior_samples$mu
+posterior_sigma <- posterior_samples$sigma
+
+# Summarize the posterior samples
+summary(posterior_mu)
+summary(posterior_sigma)
+
+#Posterior Predictive Checks
+
+posterior_samples <- extract(fit)
+posterior_mu <- posterior_samples$mu
+posterior_sigma <- posterior_samples$sigma
+
+# Number of posterior draws
+n_draws <- 100  # Number of draws to generate
+
+# Generate posterior predictive samples
+y_rep <- matrix(NA, nrow = n_draws, ncol = length(df1$salt))
+
+for (i in 1:n_draws) {
+  # Draw new data from the normal distribution using mu and sigma
+  y_rep[i, ] <- rnorm(length(df1$salt), mean = posterior_mu[i], sd = posterior_sigma[i])
+}
+
+# View the first few rows of the simulated data
+head(y_rep)
+
+# Plot observed data
+hist(df1$salt, main = "Observed Salt", xlab = "Salt", col = "gray")
+
+# Plot the first set of posterior predictive samples
+hist(y_rep[1, ], main = "Simulated Salt (Posterior Predictive)", xlab = "Salt", col = "blue")
+
+```
+
+# permutation tests
+```{r permutation tests}
+library(coin)
+
+df1$group<-factor(df1$group)
+permutation_test_salt <- oneway_test(salt ~ group, data = df1, distribution = approximate(nresample = 9999))
+
+# View results
+print(permutation_test_salt)
+
+permutation_test_sugar <- oneway_test(sugar_sweeteners~ group, data = df1, distribution = approximate(nresample = 9999))
+# View results
+print(permutation_test_sugar)
+```
+
