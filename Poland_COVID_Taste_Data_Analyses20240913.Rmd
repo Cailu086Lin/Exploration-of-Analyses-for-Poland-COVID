@@ -1,0 +1,395 @@
+---
+title: "Taste Analyses for Poland COVID Data"
+author: "Caulu Lin"
+date: '`r format(Sys.time(), "%B %d, %Y")`'
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+
+```{r packages}
+pacman::p_load(dplyr,tidyr, rcompanion, readxl,ggplot2, ggstatsplot,brms, bayesplot, rstan, tidybayes,ggdist)
+```
+
+
+```{r data wrangling,message=FALSE, warning=FALSE}
+df<-read_excel("Food_Habits_109_sex_answers.xlsx")%>%
+dplyr::select(`Group (as in the html file: 1, CoV_smell_taste_disturbances; 2, CoV_no_smell_taste_disturbances; 3, healthCtr)`,Number, Sex,
+`How much salt do you use in your  meals?`,
+`How much bitter additives do you use in your  meals?`,
+`How much sugar/sweeteners do you use in your meals?`,
+`How much sour additives (e.g. citric acid, vinegar) do you use in your  meals?`)%>%
+rename("Group"="Group (as in the html file: 1, CoV_smell_taste_disturbances; 2, CoV_no_smell_taste_disturbances; 3, healthCtr)",
+"ID"="Number",
+"salt"="How much salt do you use in your  meals?",
+"bitter"="How much bitter additives do you use in your  meals?",
+"sweet"="How much sugar/sweeteners do you use in your meals?",
+"sour"="How much sour additives (e.g. citric acid, vinegar) do you use in your  meals?")%>%
+mutate(Group=recode(Group, "1"="CoV_smell_taste_disturbances",
+"2"="CoV_no_smell_taste_disturbances","3"="healthCtr"))%>%
+drop_na(ID)%>%
+mutate_all(~ifelse(.=="None",0, ifelse(.=="Little",1,ifelse(.=="VeryLittle", 2,
+ifelse(.=="Moderately",3, ifelse(.=="Much",4, ifelse(.=="VeryMuch", 5,.)))))))%>%
+mutate(salt=as.numeric(salt),
+sweet=as.numeric(sweet),
+bitter=as.numeric(bitter),
+sour=as.numeric(sour))%>%
+glimpse()
+
+
+summary(df)
+```
+
+```{r plot data, message=FALSE,warning=FALSE}
+ggbetweenstats(
+  data = df,
+  x = Group,
+  y = salt,
+  title="Salt"
+)
+
+ggbetweenstats(
+  data = df,
+  x = Group,
+  y = sweet,
+  title="Sweet"
+)
+
+ggbetweenstats(
+  data = df,
+  x = Group,
+  y = bitter,
+  title="bitter"
+)
+
+ggbetweenstats(
+  data = df,
+  x = Group,
+  y = sour,
+  title="Sour"
+)
+
+# subset data
+df1<-subset(df, Group !="CoV_no_smell_taste_disturbances")
+ggbetweenstats(
+  data = df1,
+  x = Group,
+  y = salt,
+  title="Salt : CoV_smell_taste_disturbances vs healthCtr"
+)
+
+ggbetweenstats(
+  data = df1,
+  x = Group,
+  y = sweet,
+  title="Sweet : CoV_smell_taste_disturbances vs healthCtr"
+)
+
+ggbetweenstats(
+  data = df1,
+  x = Group,
+  y = bitter,
+  title="bitter : CoV_smell_taste_disturbances vs healthCtr"
+)
+
+ggbetweenstats(
+  data = df1,
+  x = Group,
+  y = sour,
+  title="Sour : CoV_smell_taste_disturbances vs healthCtr"
+)
+```
+
+
+```{r sheirerRayHare stats,message=FALSE, warning=FALSE}
+#salt
+scheirerRayHare(salt~Group+Sex, data=df)
+
+scheirerRayHare(salt~Group+Sex, data=subset(df, Group != "CoV_no_smell_taste_disturbances"))
+summary(aov(salt~Group*Sex, data=subset(df, Group != "CoV_no_smell_taste_disturbances")))
+
+#sweet
+scheirerRayHare(sweet~Group+Sex, data=df)
+scheirerRayHare(sweet~Group+Sex, data=subset(df, Group != "CoV_no_smell_taste_disturbances"))
+summary(aov(sweet~Group*Sex, data=subset(df, Group != "CoV_no_smell_taste_disturbances")))
+
+#bitter
+scheirerRayHare(bitter~Group+Sex, data=df)
+scheirerRayHare(bitter~Group+Sex, data=subset(df, Group != "CoV_no_smell_taste_disturbances"))
+summary(aov(bitter~Group*Sex, data=subset(df, Group != "CoV_no_smell_taste_disturbances")))
+
+#sour
+scheirerRayHare(sour~Group+Sex, data=df)
+scheirerRayHare(sour~Group+Sex, data=subset(df, Group != "CoV_no_smell_taste_disturbances"))
+summary(aov(sour~Group*Sex, data=subset(df, Group != "CoV_no_smell_taste_disturbances")))
+
+```
+
+
+
+## Among several advanced statistical methods and resampling techniques, Bayesian can provide more robust insights.  We use Bayesian model to perform analyses of the two-way (Group * Sex) data 
+
+
+```{r Baysian model salt,  echo=TRUE, message=FALSE, warning=FALSE , results='hide'}
+# salt: almost no Group difference
+model<-brm(salt~Group*Sex, data=df1, family=gaussian())
+```
+
+
+```{r Baysian model salt2,  echo=TRUE, message=FALSE, warning=FALSE }
+# Posterior Distributions
+summary(model)
+# Extract posterior samples
+post_samples <- posterior_samples(model)
+# Plot posterior distributions of group effect
+mcmc_dens(post_samples, pars = "b_GrouphealthCtr")+
+  ggtitle("Salt: Posterior Distribution of Group healthCtr Effect")
+# Posterior predictive checks
+pp_check(model)+
+  ggtitle("Salt: Posterior Predictive Check for Group Differences")
+
+# Credible Intervals Plot
+draws <- as_draws_df(model)
+mcmc_trace(draws)
+plot(mcmc_intervals(as_draws_df(model)))+
+  ggtitle("Salt: 95% Credible Interval for Group healthCtr Effect")
+
+# Difference in Group Means Plot 
+
+#extracting group-level means from the posterior samples
+CoV_smell_taste_disturbances_mean <- post_samples$b_Intercept
+healthCtr_mean <- post_samples$b_Intercept + post_samples$b_GrouphealthCtr
+
+#Difference in means
+group_difference <- healthCtr_mean - CoV_smell_taste_disturbances_mean
+
+#Plot the difference in means
+mcmc_areas(as.data.frame(group_difference)) +
+  ggtitle("Salt: Posterior Distribution of Group Differences\n (Group_healthCtr - Group_CoV_smell_taste_disturbances)")
+
+# Interaction Plot (for Group * Sex Interaction)
+new_data <- data.frame(
+  Group = factor(c("CoV_smell_taste_disturbances", "healthCtr")),
+  Sex = factor(c("M", "F"))
+)
+fitted_values <- posterior_epred(model, newdata = new_data)
+
+# Convert to a tidy format
+fitted_values_df <- add_epred_draws(new_data, model)
+
+# Plot interaction between Group and Sex
+ggplot(fitted_values_df, aes(x = Group, y = .epred, color = Sex)) +
+  stat_pointinterval() +
+  ggtitle("Salt: Predicted Group Differences by Sex")+theme_ggdist()
+
+
+## Raincloud Plot for Group Difference
+ggplot(df1, aes(x = Group, y = salt, fill = Group)) +
+  stat_halfeye(adjust = .5, justification = -.2, .width = 0, point_colour = NA) +
+  geom_boxplot(width = .12, outlier.color = NA, alpha = 0.5) +
+  geom_jitter(width = .1, alpha = 0.3) +
+  ggtitle("Salt: Raincloud Plot of Group Differences")+theme_ggdist()+
+ theme(legend.position = "none")
+```
+
+
+```{r Baysian model sweet,  echo=TRUE, message=FALSE, warning=FALSE , results='hide'}
+# sweet:COVID patients reduced sugar intake
+model<-brm(sweet~Group*Sex, data=df1, family=gaussian())
+```
+
+
+```{r Baysian model sweet2,  echo=TRUE, message=FALSE, warning=FALSE }
+# Posterior Distributions
+summary(model)
+ 
+# Extract posterior samples
+post_samples <- posterior_samples(model)
+# Plot posterior distributions of group effect
+mcmc_dens(post_samples, pars = "b_GrouphealthCtr")+
+  ggtitle("Sweet: Posterior Distribution of Group healthCtr Effect")
+# Posterior predictive checks
+pp_check(model)+
+  ggtitle("Sweet: Posterior Predictive Check for Group Differences")
+
+
+# Credible Intervals Plot
+draws <- as_draws_df(model)
+mcmc_trace(draws)
+plot(mcmc_intervals(as_draws_df(model)))+
+  ggtitle("Sweet: 95% Credible Interval for Group healthCtr Effect")
+
+
+# Difference in Group Means Plot 
+
+#extracting group-level means from the posterior samples
+CoV_smell_taste_disturbances_mean <- post_samples$b_Intercept
+healthCtr_mean <- post_samples$b_Intercept + post_samples$b_GrouphealthCtr
+
+#Difference in means
+group_difference <- healthCtr_mean - CoV_smell_taste_disturbances_mean
+
+#Plot the difference in means
+mcmc_areas(as.data.frame(group_difference)) +
+  ggtitle("Sweet: Posterior Distribution of Group Differences\n (Group_healthCtr - Group_CoV_smell_taste_disturbances)")
+
+# Interaction Plot (for Group * Sex Interaction)
+new_data <- data.frame(
+  Group = factor(c("CoV_smell_taste_disturbances", "healthCtr")),
+  Sex = factor(c("M", "F"))
+)
+fitted_values <- posterior_epred(model, newdata = new_data)
+
+# Convert to a tidy format
+fitted_values_df <- add_epred_draws(new_data, model)
+
+# Plot interaction between Group and Sex
+ggplot(fitted_values_df, aes(x = Group, y = .epred, color = Sex)) +
+  stat_pointinterval() +
+  ggtitle("Sweet: Predicted Group Differences by Sex")+theme_ggdist()
+
+
+## Raincloud Plot for Group Difference
+ggplot(df1, aes(x = Group, y = sweet, fill = Group)) +
+  stat_halfeye(adjust = .5, justification = -.2, .width = 0, point_colour = NA) +
+  geom_boxplot(width = .12, outlier.color = NA, alpha = 0.5) +
+  geom_jitter(width = .1, alpha = 0.3) +
+  ggtitle("Sweet: Raincloud Plot of Group Differences")+theme_ggdist()+
+ theme(legend.position = "none")
+```
+
+
+```{r Baysian model bitter,  echo=TRUE, message=FALSE, warning=FALSE , results='hide'}
+## bitter: COVID patients increase bitter additive intake!
+model<-brm(bitter~Group*Sex, data=df1, family=gaussian())
+```
+
+
+```{r Baysian model bitter2,  echo=TRUE, message=FALSE, warning=FALSE }
+# Posterior Distributions
+summary(model)
+
+# Extract posterior samples
+post_samples <- posterior_samples(model)
+# Plot posterior distributions of group effect
+mcmc_dens(post_samples, pars = "b_GrouphealthCtr")+
+  ggtitle("Bitter: Posterior Distribution of Group healthCtr Effect")
+# Posterior predictive checks
+pp_check(model)+
+  ggtitle("Bitter: Posterior Predictive Check for Group Differences")
+
+
+# Credible Intervals Plot
+draws <- as_draws_df(model)
+mcmc_trace(draws)
+plot(mcmc_intervals(as_draws_df(model)))+
+  ggtitle("Bitter: 95% Credible Interval for Group healthCtr Effect")
+
+# Difference in Group Means Plot 
+
+#extracting group-level means from the posterior samples
+CoV_smell_taste_disturbances_mean <- post_samples$b_Intercept
+healthCtr_mean <- post_samples$b_Intercept + post_samples$b_GrouphealthCtr
+
+#Difference in means
+group_difference <- healthCtr_mean - CoV_smell_taste_disturbances_mean
+
+#Plot the difference in means
+mcmc_areas(as.data.frame(group_difference)) +
+  ggtitle("Bitter: Posterior Distribution of Group Differences\n (Group_healthCtr - Group_CoV_smell_taste_disturbances)")
+
+# Interaction Plot (for Group * Sex Interaction)
+new_data <- data.frame(
+  Group = factor(c("CoV_smell_taste_disturbances", "healthCtr")),
+  Sex = factor(c("M", "F"))
+)
+fitted_values <- posterior_epred(model, newdata = new_data)
+
+# Convert to a tidy format
+fitted_values_df <- add_epred_draws(new_data, model)
+
+# Plot interaction between Group and Sex
+ggplot(fitted_values_df, aes(x = Group, y = .epred, color = Sex)) +
+  stat_pointinterval() +
+  ggtitle("Bitter: Predicted Group Differences by Sex")+theme_ggdist()
+
+
+
+## Raincloud Plot for Group Difference
+ggplot(df1, aes(x = Group, y = bitter, fill = Group)) +
+  stat_halfeye(adjust = .5, justification = -.2, .width = 0, point_colour = NA) +
+  geom_boxplot(width = .12, outlier.color = NA, alpha = 0.5) +
+  geom_jitter(width = .1, alpha = 0.3) +
+  ggtitle("Bitter: Raincloud Plot of Group Differences")+theme_ggdist()+
+ theme(legend.position = "none")
+```
+
+
+```{r Baysian model sour,  echo=TRUE, message=FALSE, warning=FALSE, results='hide' }
+## sour COVID patients increase sour additive intake
+model<-brm(sour~Group*Sex, data=df1, family=gaussian())
+```
+
+
+```{r Baysian model sour2,  echo=TRUE, message=FALSE, warning=FALSE }
+summary(model)
+
+post_samples <- posterior_samples(model)
+# Plot posterior distributions of group effect
+mcmc_dens(post_samples, pars = "b_GrouphealthCtr")+
+  ggtitle("Sour: Posterior Distribution of Group healthCtr Effect")
+# Posterior predictive checks
+pp_check(model)+
+  ggtitle("Sour: Posterior Predictive Check for Group Differences")
+
+
+# Credible Intervals Plot
+draws <- as_draws_df(model)
+mcmc_trace(draws)
+plot(mcmc_intervals(as_draws_df(model)))+
+  ggtitle("Sour: 95% Credible Interval for Group healthCtr Effect")
+
+# Difference in Group Means Plot 
+
+#extracting group-level means from the posterior samples
+CoV_smell_taste_disturbances_mean <- post_samples$b_Intercept
+healthCtr_mean <- post_samples$b_Intercept + post_samples$b_GrouphealthCtr
+
+#Difference in means
+group_difference <- healthCtr_mean - CoV_smell_taste_disturbances_mean
+
+#Plot the difference in means
+mcmc_areas(as.data.frame(group_difference)) +
+  ggtitle("Sour: Posterior Distribution of Group Differences\n (Group_healthCtr - Group_CoV_smell_taste_disturbances)")
+
+# Interaction Plot (for Group * Sex Interaction)
+new_data <- data.frame(
+  Group = factor(c("CoV_smell_taste_disturbances", "healthCtr")),
+  Sex = factor(c("M", "F"))
+)
+fitted_values <- posterior_epred(model, newdata = new_data)
+
+# Convert to a tidy format
+fitted_values_df <- add_epred_draws(new_data, model)
+
+# Plot interaction between Group and Sex
+ggplot(fitted_values_df, aes(x = Group, y = .epred, color = Sex)) +
+  stat_pointinterval() +
+  ggtitle("Sour: Predicted Group Differences by Sex")+theme_ggdist()
+
+
+## Raincloud Plot for Group Difference
+ggplot(df1, aes(x = Group, y = sour, fill = Group)) +
+  stat_halfeye(adjust = .5, justification = -.2, .width = 0, point_colour = NA) +
+  geom_boxplot(width = .12, outlier.color = NA, alpha = 0.5) +
+  geom_jitter(width = .1, alpha = 0.3) +
+  ggtitle("Sour: Raincloud Plot of Group Differences")+theme_ggdist()+
+ theme(legend.position = "none")
+
+```
+
+
+
